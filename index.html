@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Enterprise Frontend Master Flashcards</title>
+  <style>
+    :root {
+      --bg: #0b0f17;
+      --card-bg: #131b26;
+      --border: #233044;
+      --text: #c5d1de;
+      --text-bright: #f0f6fc;
+      --accent: #58a6ff;
+      --accent-muted: #1f6feb;
+      --code-bg: #090d14;
+      --tag-bg: #1c2738;
+      --warn: #e3b341;
+      --warn-bg: rgba(227, 179, 65, 0.08);
+      --success: #3fb950;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 24px 16px;
+    }
+    header {
+      width: 100%;
+      max-width: 1000px;
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    h1 { font-size: 1.25rem; color: var(--text-bright); font-weight: 700; }
+    .controls-row {
+      width: 100%;
+      max-width: 1000px;
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    select, button, label.btn-label {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      color: var(--text-bright);
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      outline: none;
+      display: inline-flex;
+      align-items: center;
+    }
+    select:focus, button:hover:not(:disabled), label.btn-label:hover { border-color: var(--accent); }
+    button:disabled { opacity: 0.35; cursor: not-allowed; }
+    .status-text { font-size: 0.85rem; color: var(--accent); font-weight: 600; margin-left: auto; }
+    .card-container {
+      width: 100%;
+      max-width: 1000px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 28px;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.6);
+      position: relative;
+    }
+    .meta-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .tag {
+      background: var(--tag-bg);
+      color: var(--accent);
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      border: 1px solid var(--border);
+      text-transform: uppercase;
+    }
+    .reveal-btn {
+      background: var(--accent-muted);
+      color: #fff;
+      border: none;
+      font-weight: 600;
+    }
+    .reveal-btn:hover { background: var(--accent); }
+    .q-box {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--text-bright);
+      line-height: 1.5;
+      margin-bottom: 16px;
+    }
+    .a-box {
+      display: none;
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      line-height: 1.6;
+      font-size: 0.95rem;
+    }
+    .a-box.visible { display: block; }
+    .gotcha-box {
+      background: var(--warn-bg);
+      border-left: 4px solid var(--warn);
+      padding: 14px 18px;
+      margin: 18px 0;
+      border-radius: 0 6px 6px 0;
+      color: #ecd58a;
+      font-size: 0.88rem;
+    }
+    .gotcha-box strong { color: var(--warn); }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      padding: 14px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.82rem;
+      margin: 14px 0;
+      color: #e6edf3;
+    }
+    .nav-bar {
+      width: 100%;
+      max-width: 1000px;
+      display: flex;
+      justify-content: space-between;
+      margin-top: 18px;
+    }
+    .hint { margin-top: 22px; font-size: 0.75rem; color: #6b7a90; }
+    #fileInput { display: none; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Enterprise Architecture &amp; Web Platform Deck</h1>
+    <div class="status-text" id="progressIndicator">Loading cards...</div>
+  </header>
+
+  <div class="controls-row">
+    <select id="categorySelect" onchange="filterCategory()">
+      <option value="ALL">All Categories</option>
+    </select>
+    <button onclick="shuffleCards()">Shuffle</button>
+    <label class="btn-label" for="fileInput">+ Append Local JSON</label>
+    <input type="file" id="fileInput" accept=".json" onchange="importLocalBatch(event)" />
+  </div>
+
+  <div class="card-container">
+    <div class="meta-row">
+      <span class="tag" id="cardTag">Category</span>
+      <button class="reveal-btn" id="revealToggle" onclick="toggleAnswer()">Show Answer (Space)</button>
+    </div>
+    <div class="q-box" id="questionText"></div>
+    <div class="a-box" id="answerContainer"></div>
+  </div>
+
+  <div class="nav-bar">
+    <button id="prevBtn" onclick="navigate(-1)">&larr; Previous (Left Arrow)</button>
+    <button id="nextBtn" onclick="navigate(1)">Next (Right Arrow) &rarr;</button>
+  </div>
+
+  <div class="hint">Keyboard Controls: [Space] Toggle Answer | [&larr;] Prev | [&rarr;] Next</div>
+
+  <script>
+    let masterCards = [];
+    let currentDeck = [];
+    let currentIndex = 0;
+    let isRevealed = false;
+
+    const questionText = document.getElementById("questionText");
+    const answerContainer = document.getElementById("answerContainer");
+    const cardTag = document.getElementById("cardTag");
+    const progressIndicator = document.getElementById("progressIndicator");
+    const revealToggle = document.getElementById("revealToggle");
+    const prevBtn = document.getElementById("prevBtn");
+    const nextBtn = document.getElementById("nextBtn");
+    const categorySelect = document.getElementById("categorySelect");
+
+    // Fetch cards.json on boot
+    async function loadCardsData() {
+      try {
+        const response = await fetch('./cards.json');
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        masterCards = await response.json();
+        setupCategories();
+        filterCategory();
+      } catch (err) {
+        questionText.innerHTML = "Error loading <code>cards.json</code>. If testing locally, run a simple static server (e.g. <code>npx serve</code> or VS Code Live Server) or deploy directly to GitHub Pages.";
+        cardTag.innerText = "ERROR";
+        progressIndicator.innerText = "0 of 0";
+      }
+    }
+
+    function setupCategories() {
+      const categories = ["ALL", ...new Set(masterCards.map(c => c.cat).filter(Boolean))];
+      categorySelect.innerHTML = categories.map(c => 
+        `<option value="${c}">${c === "ALL" ? "All Categories (" + masterCards.length + ")" : c}</option>`
+      ).join('');
+    }
+
+    function renderCard() {
+      if (currentDeck.length === 0) {
+        questionText.innerText = "No cards found.";
+        answerContainer.innerHTML = "";
+        cardTag.innerText = "EMPTY";
+        progressIndicator.innerText = "0 of 0";
+        revealToggle.style.display = "none";
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        return;
+      }
+      revealToggle.style.display = "block";
+      const card = currentDeck[currentIndex];
+      cardTag.innerText = card.tag || card.cat || "General";
+      questionText.innerHTML = card.q;
+      answerContainer.innerHTML = card.a;
+      progressIndicator.innerText = `Card ${currentIndex + 1} of ${currentDeck.length}`;
+
+      isRevealed = false;
+      answerContainer.classList.remove("visible");
+      revealToggle.innerText = "Show Answer (Space)";
+
+      prevBtn.disabled = currentIndex === 0;
+      nextBtn.disabled = currentIndex === currentDeck.length - 1;
+    }
+
+    function toggleAnswer() {
+      if (currentDeck.length === 0) return;
+      isRevealed = !isRevealed;
+      answerContainer.classList.toggle("visible", isRevealed);
+      revealToggle.innerText = isRevealed ? "Hide Answer (Space)" : "Show Answer (Space)";
+    }
+
+    function navigate(delta) {
+      const nextIdx = currentIndex + delta;
+      if (nextIdx >= 0 && nextIdx < currentDeck.length) {
+        currentIndex = nextIdx;
+        renderCard();
+      }
+    }
+
+    function filterCategory() {
+      const selected = categorySelect.value;
+      currentDeck = selected === "ALL" ? [...masterCards] : masterCards.filter(c => c.cat === selected);
+      currentIndex = 0;
+      renderCard();
+    }
+
+    function shuffleCards() {
+      for (let i = currentDeck.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [currentDeck[i], currentDeck[j]] = [currentDeck[j], currentDeck[i]];
+      }
+      currentIndex = 0;
+      renderCard();
+    }
+
+    function importLocalBatch(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        try {
+          const imported = JSON.parse(evt.target.result);
+          if (Array.isArray(imported)) {
+            masterCards = [...masterCards, ...imported];
+            setupCategories();
+            filterCategory();
+          }
+        } catch (err) {
+          alert("Invalid card batch JSON format.");
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if (e.code === "Space") { e.preventDefault(); toggleAnswer(); }
+      else if (e.code === "ArrowRight") navigate(1);
+      else if (e.code === "ArrowLeft") navigate(-1);
+    });
+
+    loadCardsData();
+  </script>
+</body>
+</html>
