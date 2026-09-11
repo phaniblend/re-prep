@@ -152,151 +152,451 @@
   {
     "cat": "React & RR7",
     "tag": "React 19 Compiler",
-    "q": "Q26: How does the React 19 Compiler (React Forget) fundamentally change useMemo and useCallback usage, and what legacy code patterns break its memoization guarantees?",
-    "a": "<p><strong>A:</strong> The React Compiler automatically memos values and callbacks at the AST/HIR level based on reactive dependencies, rendering manual <code>useMemo</code> and <code>useCallback</code> largely redundant. However, it relies on the 'Rules of React'. If components mutate props, read/write global variables during render, or mutate external state during render, the compiler bails out of auto-memoization for that entire component.</p><pre><code>// BREAKS REACT COMPILER AUTO-MEMOIZATION:\\nfunction MetricView({ data }) {\\n  data.sort(); // MUTATION OF PROPS: Bails out compiler optimizations!\\n  return &lt;div&gt;{data[0]}&lt;/div&gt;;\\n}\\n\\n// COMPILER SAFE (Pure & Immutable):\\nfunction MetricView({ data }) {\\n  const sorted = [...data].sort();\\n  return &lt;div&gt;{sorted[0]}&lt;/div&gt;;\\n}</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Relying on object reference identity inside rendering logic can fail unexpectedly under compiler memoization. Write pure functions with zero render-phase side effects.</div>"
+    "q": "Q26: How does the React 19 Compiler fundamentally change useMemo and useCallback usage, and what breaks its memoization guarantees?",
+    "a": "<p><strong>A:</strong> The compiler automatically memos values and callbacks based on reactive dependencies. However, it requires pure rendering. Mutating props, external variables, or state during render bails out auto-memoization.</p><pre><code>// Bails out compiler: data.sort();\\n// Compiler Safe: const sorted = [...data].sort();</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Relying on manual object reference comparison inside components can fail unexpectedly when the compiler alters allocation patterns.</div>"
   },
   {
     "cat": "React & RR7",
     "tag": "SSR & Hydration",
-    "q": "Q27: What causes React hydration mismatches, and how do you cleanly handle client-only values (like window.innerWidth or local timestamps) without layout flickering?",
-    "a": "<p><strong>A:</strong> Hydration errors occur when the pre-rendered server HTML differs from the initial client render tree. Avoid ternary window checks in the render phase. Instead, use a two-pass render pattern with a mounting flag in <code>useEffect</code> or use <code>useSyncExternalStore</code>.</p><pre><code>import { useSyncExternalStore } from \"react\";\\n\\nfunction subscribe(callback: () => void) {\\n  window.addEventListener(\"resize\", callback);\\n  return () => window.removeEventListener(\"resize\", callback);\\n}\\n\\nexport function useIsMobile() {\\n  return useSyncExternalStore(\\n    subscribe,\\n    () => window.innerWidth < 768,\\n    () => false\\n  );\\n}</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Using <code>suppressHydrationWarning</code> only silences text attribute differences; it will not fix structural tree mismatches, which trigger a full client-side DOM re-creation.</div>"
+    "q": "Q27: What causes React hydration mismatches, and how do you handle client-only values without layout flickering?",
+    "a": "<p><strong>A:</strong> Hydration errors occur when pre-rendered server HTML differs from initial client render trees. Use <code>useSyncExternalStore</code> with distinct client and server snapshots to avoid mismatch errors.</p><pre><code>useSyncExternalStore(subscribe, () => window.innerWidth < 768, () => false);</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> <code>suppressHydrationWarning</code> only silences text attribute differences; structural DOM mismatches force a full client-side remount.</div>"
   },
   {
     "cat": "React & RR7",
     "tag": "React Router 7",
     "q": "Q28: How do you implement infinite scroll pagination in React Router 7 using useFetcher without resetting previously loaded list items?",
-    "a": "<p><strong>A:</strong> Use <code>fetcher.load()</code> with a query parameter (e.g., <code>?page=2</code>). Accumulate data inside a persistent client array or merge incoming <code>fetcher.data</code> items using a reducer or local state triggered by an intersection observer.</p><pre><code>import { useFetcher } from \"react-router\";\\nimport { useState, useEffect } from \"react\";\\n\\nexport function InfiniteAuditLog({ initialItems }) {\\n  const fetcher = useFetcher();\\n  const [items, setItems] = useState(initialItems);\\n  const [page, setPage] = useState(1);\\n\\n  useEffect(() => {\\n    if (fetcher.data?.items) {\\n      setItems(prev => [...prev, ...fetcher.data.items]);\\n    }\\n  }, [fetcher.data]);\\n\\n  const loadMore = () => {\\n    const nextPage = page + 1;\\n    setPage(nextPage);\\n    fetcher.load(`/api/logs?page=${nextPage}`);\\n  };\\n\\n  return &lt;div&gt;{/* Trigger loadMore */}&lt;/div&gt;;\\n}</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Do not navigate via standard <code>useNavigate</code> for infinite scrolling; full route navigation drops scroll position and re-executes top-level route loaders from page 1.</div>"
+    "a": "<p><strong>A:</strong> Use <code>fetcher.load()</code> with a query parameter (e.g., <code>?page=2</code>). Accumulate new incoming <code>fetcher.data</code> items into local state or a reducer upon resolution.</p><pre><code>fetcher.load(`/api/logs?page=${nextPage}`);</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Calling standard <code>useNavigate</code> triggers full route navigation, resetting scroll positions and re-running root route loaders.</div>"
   },
   {
     "cat": "React & RR7",
     "tag": "Server Components (RSC)",
-    "q": "Q29: What is the architectural boundary between React Server Components (RSC) and Client Components ('use client'), and what happens if you pass non-serializable props across this seam?",
-    "a": "<p><strong>A:</strong> Server Components execute strictly on the server/build step and output a JSON-like stream (RSC payload). Client Components ('use client') hydrate into interactive DOM elements. Props passed from Server to Client components cross a network boundary and must be serializable.</p><pre><code>// SERVER COMPONENT\\nimport { ClientChart } from \"./ClientChart\";\\n\\nexport async function Dashboard() {\\n  const rawDbData = await db.query();\\n  return &lt;ClientChart data={JSON.parse(JSON.stringify(rawDbData))} /&gt;;\\n}</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> <code>'use client'</code> does not mean 'runs only in the browser'—Client Components still execute on the server during the initial Server-Side Render (SSR) pass. Guard against direct <code>window</code> access at top-level scope.</div>"
+    "q": "Q29: What is the architectural boundary between React Server Components and Client Components ('use client')?",
+    "a": "<p><strong>A:</strong> Server Components execute strictly on the server and stream an RSC JSON payload. Client Components hydrate interactively. Props passed across the RSC boundary must be serializable JSON.</p><pre><code>// Functions and class instances cannot cross the RSC network boundary.</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Client components still execute on the server during the initial SSR render pass; guard top-level <code>window</code> access.</div>"
   },
   {
     "cat": "React & RR7",
     "tag": "Context & Subscriptions",
-    "q": "Q30: Why does React Context trigger re-renders across all consumers regardless of what data they consume, and how does useSyncExternalStore bypass this?",
-    "a": "<p><strong>A:</strong> When a Context value changes (by reference identity), React marks every component calling <code>useContext(MyContext)</code> as needing an update, bypassing <code>React.memo</code>. <code>useSyncExternalStore</code> allows components to subscribe directly to specific slices of external state with strict equality checks.</p><pre><code>import { useSyncExternalStore } from \"react\";\\n\\nexport function ThemeIcon() {\\n  const theme = useSyncExternalStore(\\n    (cb) => store.subscribe(cb),\\n    () => store.state.theme\\n  );\\n  return &lt;span className={theme}&gt;☀&lt;/span&gt;;\\n}</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> If the <code>getSnapshot</code> callback returns a newly allocated reference without caching, React enters an infinite re-render loop.</div>"
+    "q": "Q30: Why does React Context trigger re-renders across all consumers, and how does useSyncExternalStore bypass this?",
+    "a": "<p><strong>A:</strong> Context updates re-render all components calling <code>useContext</code>. <code>useSyncExternalStore</code> enables fine-grained subscriptions to specific external state slices with equality checks.</p><pre><code>useSyncExternalStore(cb => store.subscribe(cb), () => store.state.theme);</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> If the <code>getSnapshot</code> function returns an unstable object reference without caching, React enters an infinite re-render loop.</div>"
   },
   {
     "cat": "State Management",
     "tag": "Zustand Middleware",
-    "q": "Q31: How do you build a typed persistence migration middleware in Zustand to prevent app crashes when your store schema changes in production?",
-    "a": "<p><strong>A:</strong> Use Zustand's <code>persist</code> middleware with explicit <code>version</code> and <code>migrate</code> options. If a user has an older version in localStorage, the migration function transforms the payload before hydration.</p><pre><code>export const useUserStore = create&lt;UserStateV2&gt;()(\\n  persist(\\n    (set) => ({ profile: { firstName: \"\", lastName: \"\" } }),\\n    {\\n      name: \"user-storage\",\\n      version: 2,\\n      migrate: (persistedState: any, version: number) => {\\n        if (version === 1) {\\n          const [firstName = \"\", lastName = \"\"] = (persistedState.name || \"\").split(\" \");\\n          return { profile: { firstName, lastName } };\\n        }\\n        return persistedState as UserStateV2;\\n      }\\n    }\\n  )\\n);</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Without a version migration function, deploying a schema change to an existing app will cause null pointer exceptions when reading missing fields from stale localStorage data.</div>"
+    "q": "Q31: How do you build a typed persistence migration middleware in Zustand to prevent app crashes when store schemas change?",
+    "a": "<p><strong>A:</strong> Use Zustand's <code>persist</code> middleware with explicit <code>version</code> and <code>migrate</code> handlers to transform older localStorage schemas into current types.</p><pre><code>persist(storeFn, { version: 2, migrate: (state, ver) => ver === 1 ? transform(state) : state })</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Without a migration function, deploying a schema change causes runtime crashes when reading deleted fields from old client storage.</div>"
   },
   {
     "cat": "State Management",
-    "tag": "TanStack / Server State",
-    "q": "Q32: What is the difference between staleTime and gcTime (formerly cacheTime) in TanStack Query / React Query, and what is the optimal setup for enterprise dashboards?",
-    "a": "<p><strong>A:</strong> <code>staleTime</code> dictates how long fetched data is considered fresh before triggering background refetches. <code>gcTime</code> dictates how long inactive query data remains in memory before being garbage collected.</p><pre><code>const queryClient = new QueryClient({\\n  defaultOptions: {\\n    queries: {\\n      staleTime: 1000 * 60 * 5, // 5 minutes fresh\\n      gcTime: 1000 * 60 * 30,    // 30 minutes in RAM\\n      refetchOnWindowFocus: false\\n    }\\n  }\\n});</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Setting <code>staleTime: 0</code> (default) means components refetch from the network every time they mount, even if the data was fetched half a second ago in a sibling route.</div>"
+    "tag": "TanStack Query",
+    "q": "Q32: What is the difference between staleTime and gcTime in TanStack Query, and what is the optimal setup for enterprise dashboards?",
+    "a": "<p><strong>A:</strong> <code>staleTime</code> determines how long data remains fresh before background refetches occur. <code>gcTime</code> defines how long unused cache entries remain in memory before garbage collection.</p><pre><code>{ staleTime: 1000 * 60 * 5, gcTime: 1000 * 60 * 30 }</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> The default <code>staleTime: 0</code> causes components to refetch on every remount, creating unnecessary network traffic.</div>"
   },
   {
     "cat": "State Management",
     "tag": "State Machine Guards",
-    "q": "Q33: How do conditional Guards and Actions in XState v5 isolate critical domain business logic outside of React UI components?",
-    "a": "<p><strong>A:</strong> Guards protect transitions by enforcing boolean conditions before moving states. Actions run side effects during transitions. This separates logic entirely from click handlers.</p><pre><code>export const transferMachine = setup({\\n  guards: {\\n    hasSufficientFunds: ({ context, event }) => context.balance >= event.amount\\n  }\\n}).createMachine({\\n  initial: \"editing\",\\n  states: {\\n    editing: {\\n      on: { CONFIRM: { guard: \"hasSufficientFunds\", target: \"processing\" } }\\n    },\\n    processing: { /* Handle API call */ }\\n  }\\n});</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Don't evaluate business validations in button <code>onClick</code> handlers. If network latency delays the action, multiple user clicks can cause double-debits without an explicit guard.</div>"
+    "q": "Q33: How do conditional Guards and Actions in XState v5 isolate critical domain business logic outside of React components?",
+    "a": "<p><strong>A:</strong> Guards protect transitions by enforcing conditions before changing states. Actions handle side effects. This isolates business logic from UI click handlers.</p><pre><code>on: { CONFIRM: { guard: \"hasSufficientFunds\", target: \"processing\" } }</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Validating transactions inside button click handlers leaves room for double-submit race conditions during network latency.</div>"
   },
   {
     "cat": "TypeScript",
     "tag": "Utility Types",
-    "q": "Q34: How do you construct a recursive DeepReadonly<T> utility type in TypeScript to enforce runtime immutability on complex enterprise state trees?",
-    "a": "<p><strong>A:</strong> Use conditional mapped types that test if an element is a primitive or an object/array, recursively applying <code>readonly</code> keys and modifiers.</p><pre><code>export type DeepReadonly&lt;T&gt; = T extends (infer R)[]\\n  ? ReadonlyArray&lt;DeepReadonly&lt;R&gt;&gt;\\n  : T extends Function\\n  ? T\\n  : T extends object\\n  ? { readonly [K in keyof T]: DeepReadonly&lt;T[K]&gt; }\\n  : T;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> <code>DeepReadonly</code> protects types at compile time, but does not stop runtime mutations unless enforced with <code>Object.freeze()</code> or Immer.</div>"
+    "q": "Q34: How do you construct a recursive DeepReadonly<T> utility type in TypeScript to enforce compile-time immutability?",
+    "a": "<p><strong>A:</strong> Use conditional mapped types that test if an element is a primitive, array, or object, recursively applying the <code>readonly</code> modifier to every property.</p><pre><code>type DeepReadonly&lt;T&gt; = T extends object ? { readonly [K in keyof T]: DeepReadonly&lt;T[K]&gt; } : T;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> <code>DeepReadonly</code> protects types at compile time, but does not stop runtime mutations unless paired with <code>Object.freeze()</code>.</div>"
   },
   {
     "cat": "TypeScript",
     "tag": "Template Literal Types",
-    "q": "Q35: How do Template Literal Types enable compile-time type-safety for enterprise event emitter keys or dynamic API routes?",
-    "a": "<p><strong>A:</strong> Template literal types match and combine string literals, enforcing structured patterns like namespaces, HTTP methods, or event paths at compile time.</p><pre><code>type HTTPMethod = \"GET\" | \"POST\" | \"DELETE\";\\ntype Entity = \"users\" | \"orders\" | \"inventory\";\\nexport type APIRoute = `/api/v1/${Entity}` | `/api/v1/${Entity}/${string}`;\\n\\nexport function callApi(method: HTTPMethod, route: APIRoute) {\\n  return fetch(route, { method });\\n}</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Unbounded template unions can cause the TypeScript compiler to exceed memory limits.</div>"
+    "q": "Q35: How do Template Literal Types enable compile-time type-safety for enterprise dynamic API routes?",
+    "a": "<p><strong>A:</strong> Combine string literal unions to enforce structured endpoints, REST verbs, and parameter formats directly in the type system.</p><pre><code>type APIRoute = `/api/v1/${'users' | 'orders'}/${string}`;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Unbounded cross-product template unions can cause the TypeScript compiler to exhaust memory limits during build time.</div>"
   },
   {
     "cat": "TypeScript",
     "tag": "Type Branding",
-    "q": "Q36: What is Nominal Typing (Type Branding) in TypeScript, and how does it prevent catastrophic runtime identifier mix-ups (e.g., passing a UserId to an OrderId)?",
-    "a": "<p><strong>A:</strong> TypeScript uses structural typing, meaning any string matches any other string. Type Branding attaches a unique compile-time symbol to distinguish semantically different primitives.</p><pre><code>declare const __brand: unique symbol;\\ntype Brand&lt;K, T&gt; = K & { readonly [__brand]: T };\\n\\nexport type UserId = Brand&lt;string, \"UserId\"&gt;;\\nexport type OrderId = Brand&lt;string, \"OrderId\"&gt;;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Brands are purely compile-time constructs with zero runtime overhead; they evaporate completely when compiled down to JavaScript.</div>"
+    "q": "Q36: What is Nominal Typing (Type Branding) in TypeScript, and how does it prevent runtime identifier mix-ups?",
+    "a": "<p><strong>A:</strong> Attaches a unique compile-time symbol to distinguish primitives that have identical runtime types (like preventing a UserId from being passed to an OrderId).</p><pre><code>type Brand&lt;K, T&gt; = K & { readonly __brand: T };\\ntype UserId = Brand&lt;string, 'UserId'&gt;;\\ntype OrderId = Brand&lt;string, 'OrderId'&gt;;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Brands carry zero runtime overhead; they are completely stripped during compilation to JavaScript.</div>"
   },
   {
     "cat": "Performance",
     "tag": "Core Web Vitals",
-    "q": "Q37: What causes Cumulative Layout Shift (CLS), and how do you calculate aspect-ratio containers to guarantee a CLS score < 0.1 for dynamic media?",
-    "a": "<p><strong>A:</strong> CLS happens when DOM elements shift position without user interaction. Reserve layout space ahead of time using the CSS <code>aspect-ratio</code> property or explicit image dimensions.</p><pre><code>.hero-banner-container {\\n  width: 100%;\\n  aspect-ratio: 16 / 9;\\n  background-color: #1a2234;\\n  overflow: hidden;\\n}</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Inserting dynamic promotional banners at the top of the viewport after page load degrades CLS. Always inject modal overlays out-of-flow using <code>position: fixed</code>.</div>"
+    "q": "Q37: What causes Cumulative Layout Shift (CLS), and how do you calculate aspect-ratio containers to guarantee a CLS score < 0.1?",
+    "a": "<p><strong>A:</strong> CLS occurs when visible DOM elements move unexpectedly. Reserve space for dynamic media using CSS <code>aspect-ratio</code> before assets load.</p><pre><code>.container { aspect-ratio: 16 / 9; width: 100%; }</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Injecting top banners or notification bars after load degrades CLS. Always inject banners using <code>position: fixed</code> out-of-flow.</div>"
   },
   {
     "cat": "Performance",
     "tag": "Asset Loading",
-    "q": "Q38: What is the technical difference between rel='preload', rel='prefetch', and rel='preconnect' in HTML resource hints?",
-    "a": "<p><strong>A:</strong> <code>preconnect</code> resolves DNS, TCP, and TLS handshakes in advance. <code>preload</code> fetches critical assets needed on current page with high priority. <code>prefetch</code> fetches non-critical assets needed for future navigations in idle time.</p><pre><code>&lt;link rel=\"preconnect\" href=\"https://assets.enterprise.io\" crossorigin /&gt;\\n&lt;link rel=\"preload\" href=\"/fonts/inter.woff2\" as=\"font\" type=\"font/woff2\" crossorigin /&gt;\\n&lt;link rel=\"prefetch\" href=\"/chunks/billing-dashboard.js\" /&gt;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Preloading assets that aren't consumed within 3 seconds triggers a browser console warning for wasting bandwidth.</div>"
+    "q": "Q38: What is the technical difference between rel='preload', rel='prefetch', and rel='preconnect'?",
+    "a": "<p><strong>A:</strong> <code>preconnect</code> establishes network handshakes (DNS, TLS). <code>preload</code> fetches high-priority assets needed on the current page. <code>prefetch</code> fetches assets for future routes during idle time.</p><pre><code>&lt;link rel=\"preload\" href=\"/font.woff2\" as=\"font\" type=\"font/woff2\" crossorigin /&gt;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Preloading assets that aren't consumed within 3 seconds triggers a browser console warning for wasting network bandwidth.</div>"
   },
   {
     "cat": "Performance",
     "tag": "Render Loop & V8",
-    "q": "Q39: Why does heavy CSS animation on box-shadow or width trigger continuous CPU repaints, and how does will-change promote layers to the GPU?",
-    "a": "<p><strong>A:</strong> Animating properties like <code>width</code>, <code>margin</code>, or <code>box-shadow</code> invalidates layout or paint geometry, forcing the CPU to rasterize each frame. <code>transform</code> and <code>opacity</code> run on the GPU Compositor thread. <code>will-change: transform</code> promotes the element to its own GPU compositor layer.</p><pre><code>.drawer {\\n  will-change: transform;\\n  transform: translate3d(0, 0, 0);\\n  transition: transform 0.3s ease;\\n}</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Don't use <code>will-change</code> everywhere. Each GPU layer consumes VRAM and can overwhelm mobile devices.</div>"
+    "q": "Q39: Why does heavy CSS animation on width trigger continuous CPU repaints, and how does will-change promote layers to the GPU?",
+    "a": "<p><strong>A:</strong> Animating geometric properties invalidates layout. <code>transform</code> and <code>opacity</code> are handled on the GPU Compositor thread. <code>will-change: transform</code> promotes elements to GPU layers.</p><pre><code>will-change: transform; transform: translate3d(0,0,0);</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Overusing <code>will-change</code> consumes excessive VRAM, degrading performance on memory-constrained mobile devices.</div>"
   },
   {
     "cat": "Performance",
     "tag": "Bundle Splitting",
     "q": "Q40: How does Rollup/Vite code splitting determine chunk boundaries, and how can dynamic imports create circular dependency chunks?",
-    "a": "<p><strong>A:</strong> Bundlers create chunks at static entry points and dynamic <code>import()</code> boundaries. If two dynamic routes cross-reference each other, the bundler merges them into a single shared vendor chunk, defeating lazy loading.</p><pre><code>// Move shared state/utilities to an isolated common directory (e.g. /shared/services).\\n// Use vite-plugin-inspect to track shared chunk boundaries.</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> A circular dependency between two small dynamic components can inadvertently bundle your entire chart library into the main entry chunk.</div>"
+    "a": "<p><strong>A:</strong> Chunks split on dynamic <code>import()</code> boundaries. Circular references between dynamic chunks force bundlers to combine them into a single shared chunk, defeating lazy loading.</p><pre><code>// Move shared code to isolated modules to preserve chunk separation.</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> A circular dependency between two dynamic components can pull heavy vendor packages back into the main bundle.</div>"
   },
   {
     "cat": "Performance",
     "tag": "DOM / Events",
-    "q": "Q41: How do passive event listeners ({ passive: true }) eliminate scroll stuttering on touch/wheel events?",
-    "a": "<p><strong>A:</strong> By default, the browser waits for touch/scroll event listeners to finish running JavaScript to check if <code>e.preventDefault()</code> was called. Marking listeners as <code>passive: true</code> tells the browser it won't cancel the scroll, allowing it to start immediately on the compositor thread.</p><pre><code>window.addEventListener(\"touchstart\", onTouch, { passive: true });</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Calling <code>e.preventDefault()</code> inside a passive event listener throws a console error and is ignored by the browser.</div>"
+    "q": "Q41: How do passive event listeners ({ passive: true }) eliminate scroll stuttering on touch and wheel events?",
+    "a": "<p><strong>A:</strong> Browsers wait for listeners to complete to verify if <code>preventDefault()</code> was called. <code>passive: true</code> promises it won't cancel scroll, allowing the compositor to scroll immediately.</p><pre><code>window.addEventListener(\"touchstart\", handler, { passive: true });</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Calling <code>e.preventDefault()</code> inside a passive listener throws a console error and has no effect.</div>"
   },
   {
     "cat": "Network & Security",
     "tag": "Web Workers & Storage",
     "q": "Q42: How do you manage IndexedDB transactions safely across multiple open browser tabs without data race conditions?",
-    "a": "<p><strong>A:</strong> IndexedDB transactions lock object stores. To coordinate schema upgrades or state sync across multiple tabs, use the <code>onversionchange</code> event and the <code>BroadcastChannel API</code>.</p><pre><code>const channel = new BroadcastChannel(\"db_sync_channel\");\\nchannel.onmessage = (event) => {\\n  if (event.data.type === \"ORDER_MUTATED\") invalidateLocalCache(event.data.id);\\n};</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> If a tab opens an older IndexedDB database version and refuses to close, it blocks other tabs from completing a schema migration.</div>"
+    "a": "<p><strong>A:</strong> Coordinate write locks and schema version changes across tabs using <code>onversionchange</code> event handlers and the <code>BroadcastChannel API</code>.</p><pre><code>const channel = new BroadcastChannel('db_sync');\\nchannel.onmessage = (e) => invalidateCache(e.data.id);</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Leaving an open connection in an inactive background tab can block database version upgrades initiated by active tabs.</div>"
   },
   {
     "cat": "Network & Security",
     "tag": "Security / Clickjacking",
-    "q": "Q43: What is Clickjacking, and how do you protect enterprise dashboards using X-Frame-Options and Content Security Policy frame-ancestors?",
-    "a": "<p><strong>A:</strong> Clickjacking tricks users into clicking transparent iframe layers placed over legitimate buttons. Prevent framing using the CSP <code>frame-ancestors</code> directive, which supersedes <code>X-Frame-Options</code>.</p><pre><code>Content-Security-Policy: frame-ancestors 'none';</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> <code>X-Frame-Options: ALLOW-FROM</code> is obsolete and ignored by modern browsers. Always use CSP <code>frame-ancestors</code>.</div>"
+    "q": "Q43: What is Clickjacking, and how do you protect enterprise dashboards using Content Security Policy frame-ancestors?",
+    "a": "<p><strong>A:</strong> Clickjacking overlays transparent iframes on trusted UI. The CSP <code>frame-ancestors</code> directive restricts which origins can embed the application in an iframe.</p><pre><code>Content-Security-Policy: frame-ancestors 'none';</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> <code>X-Frame-Options: ALLOW-FROM</code> is obsolete and ignored by modern browsers; use CSP <code>frame-ancestors</code> instead.</div>"
   },
   {
     "cat": "Network & Security",
     "tag": "Web Security / CSRF",
-    "q": "Q44: Why is SameSite=Lax the modern browser default, and in what specific scenario can a CSRF vulnerability still occur under Lax?",
-    "a": "<p><strong>A:</strong> <code>SameSite=Lax</code> prevents sending cookies on cross-site subrequests, but still includes them on top-level cross-site navigations using HTTP <code>GET</code>. If state mutations are allowed on GET requests, CSRF attacks remain possible.</p><pre><code>// SECURE: Enforce POST/PUT/DELETE + anti-CSRF custom headers:\\n// POST /api/v1/user/delete-account\\n// Header: X-Requested-With / CSRF-Token (Lax blocks custom headers on cross-site requests)</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Never perform state-changing operations via GET requests. Enforce safe HTTP methods and validate custom request headers.</div>"
+    "q": "Q44: Why is SameSite=Lax the modern browser default, and in what scenario can a CSRF vulnerability still occur under Lax?",
+    "a": "<p><strong>A:</strong> <code>SameSite=Lax</code> permits cookies on top-level cross-site GET navigations. If any state-changing operations are triggered via GET requests, CSRF remains possible.</p><pre><code>// Never permit state mutations via GET endpoints. Enforce POST/PUT with custom headers.</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Always require explicit POST/PUT/DELETE verbs paired with anti-CSRF request headers for state changes.</div>"
   },
   {
     "cat": "Network & Security",
     "tag": "TLS & Subresource Integrity",
     "q": "Q45: What is Subresource Integrity (SRI), and how does it protect production web applications when serving libraries from public CDNs?",
-    "a": "<p><strong>A:</strong> SRI validates that fetched third-party assets match a base64-encoded cryptographic hash. If a CDN is compromised, the browser refuses to execute the script.</p><pre><code>&lt;script \\n  src=\"https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js\"\\n  integrity=\"sha384-KyZXEAg3QhqLMpG8r+8fhAXLRk2vvoC2f3B09zVXn8CA5QIVfZOJ3BCsw2P0p/We\"\\n  crossorigin=\"anonymous\"&gt;\\n&lt;/script&gt;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> The <code>crossorigin=\"anonymous\"</code> attribute is required. Without it, the browser bypasses SRI validation.</div>"
+    "a": "<p><strong>A:</strong> SRI verifies that third-party assets match a cryptographic SHA-384 hash. If a CDN file is altered or compromised, the browser halts execution.</p><pre><code>&lt;script src=\"...\" integrity=\"sha384-...\" crossorigin=\"anonymous\"&gt;&lt;/script&gt;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Omitting the <code>crossorigin=\"anonymous\"</code> attribute causes the browser to bypass SRI validation.</div>"
   },
   {
     "cat": "Network & Security",
     "tag": "Browser Storage Quotas",
-    "q": "Q46: What is the difference between Temporary and Persistent storage modes in the StorageManager API, and when does the browser clear IndexedDB?",
-    "a": "<p><strong>A:</strong> By default, IndexedDB uses temporary storage. Under disk pressure, browsers clear temporary data on an LRU basis. Applications can request 'persistent' storage, requiring user consent or meeting engagement checks.</p><pre><code>if (navigator.storage && navigator.storage.persist) {\\n  const granted = await navigator.storage.persist();\\n}</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> In Safari/WebKit, client-side storage is purged after 7 days of inactivity if opened via a link with tracking parameters.</div>"
+    "q": "Q46: What is the difference between Temporary and Persistent storage modes in the StorageManager API?",
+    "a": "<p><strong>A:</strong> Temporary storage is cleared by the browser during low disk space. Applications can request persistent storage using <code>navigator.storage.persist()</code> to protect cached data.</p><pre><code>await navigator.storage.persist();</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> In WebKit/Safari, client storage can be cleared after 7 days of inactivity if opened via cross-site tracking links.</div>"
   },
   {
     "cat": "Network & Security",
     "tag": "DNS / Security Headers",
     "q": "Q47: What does the Strict-Transport-Security (HSTS) header do, and why is the preload directive critical for production security?",
-    "a": "<p><strong>A:</strong> HSTS instructs browsers to communicate exclusively over HTTPS, upgrading HTTP requests before they leave the client. <code>preload</code> submits the domain to browser vendor preloaded lists, enforcing HTTPS even on the first visit.</p><pre><code>Strict-Transport-Security: max-age=63072000; includeSubDomains; preload</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Enabling <code>includeSubDomains</code> applies HTTPS to all subdomains. If an internal staging domain lacks TLS, it becomes inaccessible.</div>"
+    "a": "<p><strong>A:</strong> HSTS forces browsers to use HTTPS. The <code>preload</code> directive adds the domain to browser-level hardcoded lists, protecting users on their initial connection.</p><pre><code>Strict-Transport-Security: max-age=63072000; includeSubDomains; preload</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Preloading with <code>includeSubDomains</code> breaks internal staging environments that lack valid SSL certificates.</div>"
   },
   {
     "cat": "Network & Security",
     "tag": "Network Resilience",
     "q": "Q48: How do you implement exponential backoff with jitter for failing enterprise API requests?",
-    "a": "<p><strong>A:</strong> Retrying requests on fixed intervals causes a 'thundering herd' that overwhelms recovering services. Jitter distributes retries across a time window.</p><pre><code>const backoff = baseDelay * Math.pow(2, attempt);\\nconst jitter = Math.random() * backoff * 0.5;\\nawait new Promise(r => setTimeout(r, backoff + jitter));</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Only retry idempotent requests (GET, PUT, DELETE) or 503/429 status codes. Retrying non-idempotent POST requests can duplicate orders.</div>"
+    "a": "<p><strong>A:</strong> Combine exponential time intervals with randomized jitter delays to distribute retry traffic and prevent thundering herd spikes on recovering servers.</p><pre><code>const delay = base * Math.pow(2, attempt) + Math.random() * base;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Only retry idempotent requests or status codes 429/503. Retrying non-idempotent POSTs risks duplicating transactions.</div>"
   },
   {
     "cat": "React & RR7",
-    "tag": "Architecture / Micro-Frontends",
-    "q": "Q49: How does Module Federation share dependencies (like React and React-DOM) at runtime, and what happens when version mismatches occur?",
-    "a": "<p><strong>A:</strong> Module Federation shares libraries between independently deployed micro-frontends at runtime using a shared scope. If versions match semver ranges, only one instance loads; if incompatible, a fallback instance is fetched.</p><pre><code>new ModuleFederationPlugin({\\n  name: \"host_app\",\\n  shared: {\\n    react: { singleton: true, eager: false, requiredVersion: \"^19.0.0\" }\\n  }\\n})</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Setting <code>singleton: true</code> is essential for React. If two distinct versions load, dispatcher hooks like <code>useState</code> break immediately.</div>"
+    "tag": "Micro-Frontends",
+    "q": "Q49: How does Module Federation share dependencies at runtime, and what happens when version mismatches occur?",
+    "a": "<p><strong>A:</strong> Module Federation shares singletons across independently deployed bundles. Compatible semver versions reuse existing instances; incompatible ones load fallbacks.</p><pre><code>shared: { react: { singleton: true, requiredVersion: '^19.0.0' } }</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Failing to mark React as a <code>singleton</code> causes multiple dispatcher instances to load, breaking hooks immediately.</div>"
   },
   {
     "cat": "Performance",
     "tag": "DOM / Observer APIs",
-    "q": "Q50: Why is ResizeObserver preferred over window.resize event listeners, and how do you prevent the 'ResizeObserver loop limit exceeded' error?",
-    "a": "<p><strong>A:</strong> <code>window.resize</code> only monitors the viewport. <code>ResizeObserver</code> monitors individual DOM elements. The loop limit warning occurs when an observer callback resizes the observed element in the same frame. Wrap mutations in <code>requestAnimationFrame</code>.</p><pre><code>const observer = new ResizeObserver((entries) => {\\n  requestAnimationFrame(() => {\\n    entry.target.classList.toggle(\"compact\", width < 400);\\n  });\\n});</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> The 'loop limit' error is usually benign in production, but points to circular layout mutations.</div>"
+    "q": "Q50: Why is ResizeObserver preferred over window.resize event listeners, and how do you prevent loop limit exceeded errors?",
+    "a": "<p><strong>A:</strong> <code>ResizeObserver</code> monitors dimensions of individual components. Loop errors occur when callbacks resize observed elements within the same animation frame.</p><pre><code>requestAnimationFrame(() => updateLayout());</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Wrap layout mutations triggered by ResizeObserver callbacks in <code>requestAnimationFrame</code> to avoid layout loop errors.</div>"
+  },
+  {
+    "cat": "React & RR7",
+    "tag": "React 19 Actions",
+    "q": "Q51: How does useActionState simplify form submissions and error handling compared to manual useState management?",
+    "a": "<p><strong>A:</strong> <code>useActionState</code> takes an action function and initial state, returning the current form state, a form action handler, and a pending boolean in a single hook.</p><pre><code>const [state, formAction, isPending] = useActionState(async (prev, formData) => {\\n  return await updateProfile(formData);\\n}, null);</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> <code>useActionState</code> replaces manual loading, error, and data flags, standardizing async mutations in React 19.</div>"
+  },
+  {
+    "cat": "React & RR7",
+    "tag": "React 19 Form Hooks",
+    "q": "Q52: What does useFormStatus solve in deeply nested component trees without prop drilling?",
+    "a": "<p><strong>A:</strong> <code>useFormStatus</code> reads the pending status and form data of the nearest parent <code>&lt;form&gt;</code> without requiring props to be passed down the hierarchy.</p><pre><code>function SubmitButton() {\\n  const { pending } = useFormStatus();\\n  return &lt;button disabled={pending}&gt;{pending ? 'Saving...' : 'Save'}&lt;/button&gt;;\\n}</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> <code>useFormStatus</code> must be called inside a component rendered <em>as a child</em> of the target <code>&lt;form&gt;</code>, not in the same component defining the form.</div>"
+  },
+  {
+    "cat": "React & RR7",
+    "tag": "React 19 Hooks",
+    "q": "Q53: How does the new use() hook work for resolving Promises and Context conditionally inside render?",
+    "a": "<p><strong>A:</strong> <code>use()</code> can unwrap Promises and Context values directly inside render blocks, loops, and conditional statements, unlike traditional hooks which must follow top-level rules.</p><pre><code>function UserProfile({ userPromise }) {\\n  const user = use(userPromise); // Suspends until promise resolves\\n  return &lt;div&gt;{user.name}&lt;/div&gt;;\\n}</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Promises passed to <code>use()</code> must be cached or memoized; creating a new Promise inside the render body triggers an infinite suspension loop.</div>"
+  },
+  {
+    "cat": "React & RR7",
+    "tag": "Portals & Events",
+    "q": "Q54: How does event bubbling behave across React Portals compared to the actual browser DOM hierarchy?",
+    "a": "<p><strong>A:</strong> Events bubble through the <em>React virtual tree</em>, not the physical DOM hierarchy. A click inside a portal bubbles up to its React parent component, regardless of where the portal mounts in the DOM.</p><pre><code>// Portal mounted in document.body still bubbles events to &lt;ParentComponent&gt;\\n&lt;div onClick={handleParentClick}&gt;\\n  {createPortal(&lt;ChildModal /&gt;, document.body)}\\n&lt;/div&gt;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Calling <code>e.stopPropagation()</code> in a portal stops propagation through the React tree, which may surprise developers expecting native DOM bubbling rules.</div>"
+  },
+  {
+    "cat": "React & RR7",
+    "tag": "React 19 Meta Elements",
+    "q": "Q55: How does React 19 natively manage document head tags (<title>, <meta>, <link>) without third-party libraries like react-helmet?",
+    "a": "<p><strong>A:</strong> React 19 automatically hoists <code>&lt;title&gt;</code>, <code>&lt;meta&gt;</code>, and stylesheet <code>&lt;link&gt;</code> tags declared inside components into the document's <code>&lt;head&gt;</code> natively.</p><pre><code>function Page() {\\n  return (\\n    &lt;&gt;\\n      &lt;title&gt;Billing Overview&lt;/title&gt;\\n      &lt;meta name=\"description\" content=\"Manage billing invoices\" /&gt;\\n      &lt;h1&gt;Billing&lt;/h1&gt;\\n    &lt;/&gt;\\n  );\\n}</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Hoisted metadata tags handle deduplication automatically based on attributes like <code>rel</code> and <code>href</code>.</div>"
+  },
+  {
+    "cat": "State Management",
+    "tag": "Zustand Slicing",
+    "q": "Q56: How do you implement the Slice Pattern in Zustand with strict TypeScript type-safety across interdependent slices?",
+    "a": "<p><strong>A:</strong> Define individual slice creator functions using <code>StateCreator</code>, then merge them into a combined root store interface.</p><pre><code>type AuthSlice = { user: string; login: () => void };\\ntype CartSlice = { items: string[]; addItem: () => void };\\ntype RootStore = AuthSlice & CartSlice;\\n\\nconst createAuthSlice: StateCreator&lt;RootStore, [], [], AuthSlice&gt; = (set) => ({ ... });</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Slices can cross-reference state and actions safely using the shared <code>RootStore</code> interface.</div>"
+  },
+  {
+    "cat": "State Management",
+    "tag": "Zustand External Access",
+    "q": "Q57: How do you read and mutate Zustand store state outside of React components (e.g. in Axios interceptors or utility files)?",
+    "a": "<p><strong>A:</strong> Zustand stores export <code>getState()</code> and <code>setState()</code> directly on the created hook reference, allowing access outside the React rendering lifecycle.</p><pre><code>axios.interceptors.request.use(config => {\\n  const token = useAuthStore.getState().token;\\n  if (token) config.headers.Authorization = `Bearer ${token}`;\\n  return config;\\n});</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> <code>getState()</code> returns the current value without creating a subscription; it is safe for imperative event handlers and interceptors.</div>"
+  },
+  {
+    "cat": "State Management",
+    "tag": "RTK Query Cache Tags",
+    "q": "Q58: How do dynamic cache tag invalidations work in RTK Query to prevent N+1 refetch cascades across large datasets?",
+    "a": "<p><strong>A:</strong> Provide entity-level tags with specific IDs alongside general collection tags, allowing targeted invalidation of single items rather than the entire list.</p><pre><code>providesTags: (result) => [\\n  { type: 'Posts', id: 'LIST' },\\n  ...result.map(({ id }) => ({ type: 'Posts', id }))\\n]</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Invalidating <code>{ type: 'Posts', id: 'LIST' }</code> refetches the entire collection; invalidating a specific ID updates only dependent views.</div>"
+  },
+  {
+    "cat": "State Management",
+    "tag": "XState Actors",
+    "q": "Q59: How does the Actor Model in XState v5 handle communication between concurrent child machines?",
+    "a": "<p><strong>A:</strong> Machines spawn or invoke child actors that communicate by passing messages using <code>sendTo()</code> and emit events back to parent machines.</p><pre><code>invoke: { src: childMachine, id: 'childActor' },\\non: { PING: { actions: sendTo('childActor', { type: 'PONG' }) } }</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Actors manage isolated state context; communicating through message passing eliminates shared-memory synchronization bugs.</div>"
+  },
+  {
+    "cat": "State Management",
+    "tag": "State Architecture",
+    "q": "Q60: When should an enterprise architecture choose Server State (TanStack/RR7) over Client State (Zustand/RTK)?",
+    "a": "<p><strong>A:</strong> Use Server State for remote async data that is owned by external backends (caching, deduplication, polling). Use Client State for synchronous, local-only UI state (modals, drafts, client preferences).</p><pre><code>// Rule: If it originates from an API, use Server State loaders/caching.\\n// If it lives purely in the browser session, use Zustand/Context.</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Duplicating server data into global client stores creates split sources of truth and synchronization bugs.</div>"
+  },
+  {
+    "cat": "TypeScript",
+    "tag": "Mapped Types",
+    "q": "Q61: How do mapped type key remapping (as clause) and filtering work in TypeScript 5+?",
+    "a": "<p><strong>A:</strong> Use the <code>as</code> clause to transform or filter keys in a mapped type, returning <code>never</code> to exclude keys that do not meet conditions.</p><pre><code>type GetterMethods&lt;T&gt; = {\\n  [K in keyof T as `get${Capitalize&lt;string & K&gt;}`]: () => T[K]\\n};</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Returning <code>never</code> in an <code>as</code> clause filters that key out of the resulting type entirely.</div>"
+  },
+  {
+    "cat": "TypeScript",
+    "tag": "Conditional Types",
+    "q": "Q62: How does distributive conditional typing work across union types in TypeScript, and how do you prevent distribution?",
+    "a": "<p><strong>A:</strong> Naked type parameters in conditional types automatically distribute across unions. Wrap the parameter in square brackets <code>[T]</code> to evaluate the union as a single entity.</p><pre><code>// Distributive: ToArray&lt;string | number&gt; => string[] | number[]\\ntype ToArray&lt;T&gt; = T extends any ? T[] : never;\\n\\n// Non-Distributive: ToArrayNonDist&lt;string | number&gt; => (string | number)[]\\ntype ToArrayNonDist&lt;T&gt; = [T] extends [any] ? T[] : never;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Unexpected union distribution is a common cause of cryptic compilation errors in complex generic pipelines.</div>"
+  },
+  {
+    "cat": "TypeScript",
+    "tag": "Const Type Parameters",
+    "q": "Q63: How do const type parameters (const T) in TypeScript 5+ prevent unwanted type widening on object literals?",
+    "a": "<p><strong>A:</strong> Adding <code>const</code> to a generic parameter instructs the compiler to infer the most specific literal type possible without requiring <code>as const</code> assertions at call sites.</p><pre><code>function setConfig&lt;const T extends Record&lt;string, any&gt;&gt;(config: T): T {\\n  return config;\\n}\\n// Inferred as { readonly mode: \"strict\" }, not { mode: string }\\nconst cfg = setConfig({ mode: \"strict\" });</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Eliminates boilerplate <code>as const</code> assertions when passing configuration objects to generic functions.</div>"
+  },
+  {
+    "cat": "TypeScript",
+    "tag": "Type Narrowing",
+    "q": "Q64: What is a custom Type Guard (is operator) and how does it differ from asserts value is Type in assertion functions?",
+    "a": "<p><strong>A:</strong> Type predicates (<code>x is T</code>) narrow types inside conditional branches. Assertion signatures (<code>asserts x is T</code>) throw errors if false, narrowing types for the rest of the scope.</p><pre><code>function assertIsString(val: any): asserts val is string {\\n  if (typeof val !== 'string') throw new TypeError('Not a string');\\n}</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> If an assertion function returns normally without throwing, TypeScript assumes the asserted condition holds true.</div>"
+  },
+  {
+    "cat": "TypeScript",
+    "tag": "Generics Constraints",
+    "q": "Q65: How do you enforce that an object parameter contains at least one key from a specific interface in TypeScript?",
+    "a": "<p><strong>A:</strong> Create a mapped union where each variant requires one specific property while marking all remaining properties as optional.</p><pre><code>type RequireAtLeastOne&lt;T, Keys extends keyof T = keyof T&gt; = \\n  Keys extends any ? Partial&lt;T&gt; & { [K in Keys]: T[K] } : never;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Prevents callers from passing empty objects <code>{}</code> while still allowing flexible combinations of optional attributes.</div>"
+  },
+  {
+    "cat": "Performance",
+    "tag": "Core Web Vitals",
+    "q": "Q66: How do you identify and optimize Largest Contentful Paint (LCP) when the target element is an image?",
+    "a": "<p><strong>A:</strong> Ensure the LCP image is present in the initial HTML markup, preload it using <code>&lt;link rel='preload'&gt;</code>, use modern image formats (AVIF/WebP), and avoid <code>loading='lazy'</code> on LCP images.</p><pre><code>&lt;img src=\"/hero.webp\" fetchpriority=\"high\" alt=\"Hero Banner\" /&gt;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Setting <code>loading='lazy'</code> on the hero element delays LCP by waiting until layout metrics are computed.</div>"
+  },
+  {
+    "cat": "Performance",
+    "tag": "V8 Engine",
+    "q": "Q67: What are V8 Hidden Classes and Inline Caches, and how does mutating object shape degrade JavaScript execution speed?",
+    "a": "<p><strong>A:</strong> V8 creates hidden classes for objects with identical shapes. Adding or deleting properties dynamically alters the hidden class, causing inline cache misses and falling back to slow dictionary lookups.</p><pre><code>// FAST: Consistent property initialization order\\nclass Point { constructor(x, y) { this.x = x; this.y = y; } }\\n\\n// SLOW: Dynamic property addition at runtime changes object shape\\nconst p = {}; p.x = 1; p.y = 2;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Initialize all object properties up front (even as <code>null</code>) to keep objects monomorphic.</div>"
+  },
+  {
+    "cat": "Performance",
+    "tag": "Web Workers",
+    "q": "Q68: What is the architectural difference between Web Workers, SharedWorkers, and Service Workers?",
+    "a": "<p><strong>A:</strong> Web Workers are dedicated to a single script instance. SharedWorkers are shared across multiple open tabs under the same origin. Service Workers act as network proxies for caching and offline support.</p><pre><code>// Web Worker: 1-to-1 thread with tab\\n// SharedWorker: 1-to-many tabs (session state coordination)\\n// Service Worker: Network proxy & offline caching engine</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Service Workers run without DOM access and terminate automatically when idle to conserve memory.</div>"
+  },
+  {
+    "cat": "Performance",
+    "tag": "IntersectionObserver",
+    "q": "Q69: How do you implement infinite scroll using IntersectionObserver without memory leaks from repeated observer instantiations?",
+    "a": "<p><strong>A:</strong> Instantiate a single stable <code>IntersectionObserver</code> instance, attaching and detaching the sentinel DOM element as items mount and unmount.</p><pre><code>useEffect(() => {\\n  const observer = new IntersectionObserver(([entry]) => {\\n    if (entry.isIntersecting) loadNextPage();\\n  });\\n  if (sentinelRef.current) observer.observe(sentinelRef.current);\\n  return () => observer.disconnect();\\n}, []);</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Recreating new observers inside render callbacks causes memory leaks and duplicate pagination calls.</div>"
+  },
+  {
+    "cat": "Performance",
+    "tag": "CSS Containment",
+    "q": "Q70: How does the CSS contain property optimize rendering speed in complex web applications?",
+    "a": "<p><strong>A:</strong> <code>contain: content</code> or <code>contain: strict</code> tells the browser engine that an element's subtree is isolated from the rest of the document, scoping layout and paint recalculations to that node.</p><pre><code>.dashboard-card { contain: content; }</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> <code>contain: strict</code> requires explicit width and height definitions; otherwise, the container may collapse to 0x0 pixels.</div>"
+  },
+  {
+    "cat": "Network & Security",
+    "tag": "WebTransport",
+    "q": "Q71: What is WebTransport, and how does it compare to WebSockets for real-time high-throughput web applications?",
+    "a": "<p><strong>A:</strong> WebTransport runs over HTTP/3 (QUIC/UDP), supporting both reliable bidirectional streams and unreliable datagrams with lower connection overhead and no TCP Head-of-Line blocking.</p><pre><code>const transport = new WebTransport(\"https://stream.internal:4433\");\\nawait transport.ready;\\nconst writer = transport.datagrams.writable.getWriter();\\nwriter.write(new Uint8Array([1, 2, 3]));</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Datagrams provide low-latency transmission for telemetry and games, but do not guarantee packet delivery order.</div>"
+  },
+  {
+    "cat": "Network & Security",
+    "tag": "Service Worker Caching",
+    "q": "Q72: What is the Stale-While-Revalidate caching strategy in Service Workers, and when should it be applied?",
+    "a": "<p><strong>A:</strong> Responds immediately using cached assets for fast renders, while concurrently dispatching a network request to update the cache for subsequent sessions.</p><pre><code>self.addEventListener('fetch', (event) => {\\n  event.respondWith(\\n    caches.open('dynamic-v1').then(async (cache) => {\\n      const cached = await cache.match(event.request);\\n      const network = fetch(event.request).then(res => { cache.put(event.request, res.clone()); return res; });\\n      return cached || network;\\n    })\\n  );\\n});</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Ideal for non-critical assets (avatars, articles); avoid using it on real-time financial balances or checkout states.</div>"
+  },
+  {
+    "cat": "Network & Security",
+    "tag": "Permissions-Policy",
+    "q": "Q73: What is the Permissions-Policy header, and how does it restrict browser hardware access in production?",
+    "a": "<p><strong>A:</strong> Restricts which browser features and hardware APIs (camera, microphone, geolocation) can be accessed by the page or embedded iframes.</p><pre><code>Permissions-Policy: geolocation=(), microphone=(), camera=()</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Disabling unused hardware capabilities limits the attack surface if third-party scripts or dependencies are compromised.</div>"
+  },
+  {
+    "cat": "Network & Security",
+    "tag": "CORS Preflight",
+    "q": "Q74: What constitutes a 'Simple Request' in CORS that bypasses OPTIONS preflight verification?",
+    "a": "<p><strong>A:</strong> Simple requests use <code>GET</code>, <code>HEAD</code>, or <code>POST</code>, and limit headers to standard fields (<code>Accept</code>, <code>Accept-Language</code>, <code>Content-Language</code>, or <code>Content-Type</code> restricted to form-data, urlencoded, or text/plain).</p><pre><code>// A request sending Content-Type: application/json always triggers an OPTIONS preflight.</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Adding custom headers like <code>Authorization</code> automatically triggers an <code>OPTIONS</code> preflight roundtrip.</div>"
+  },
+  {
+    "cat": "Network & Security",
+    "tag": "Certificate Transparency",
+    "q": "Q75: What is Certificate Transparency (CT), and how does Expect-CT protect domains from fraudulent SSL certificates?",
+    "a": "<p><strong>A:</strong> Certificate Transparency mandates that Certificate Authorities log issued TLS certificates publicly, allowing domain owners to detect misissued or fraudulent SSL certificates.</p><pre><code>// Modern browsers enforce Certificate Transparency by default for all valid TLS certificates.</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Protects against rogue or compromised Certificate Authorities generating unauthorized certificates for your domain.</div>"
+  },
+  {
+    "cat": "React & RR7",
+    "tag": "React 19 Server Actions",
+    "q": "Q76: How do Server Actions in React 19 handle progressive enhancement when JavaScript is disabled or fails to load?",
+    "a": "<p><strong>A:</strong> Server Actions bound to a standard <code>&lt;form action={serverAction}&gt;</code> execute via native HTTP POST form submissions if JavaScript has not yet hydrated.</p><pre><code>// When JS loads, React intercepts submission via fetch; before JS loads, it submits natively.</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Avoid relying on synthetic event objects inside Server Actions to ensure native form submission compatibility.</div>"
+  },
+  {
+    "cat": "React & RR7",
+    "tag": "Suspense Boundaries",
+    "q": "Q77: How do nested Suspense boundaries prevent page rendering waterfalls during concurrent data fetching?",
+    "a": "<p><strong>A:</strong> Nesting Suspense boundaries allows faster UI components to render immediately, while slower parts stream into the page as data becomes available.</p><pre><code>&lt;Suspense fallback={&lt;ShellSkeleton /&gt;}&gt;\\n  &lt;Nav /&gt;\\n  &lt;Suspense fallback={&lt;ChartSkeleton /&gt;}&gt;\\n    &lt;HeavyMetrics /&gt;\\n  &lt;/Suspense&gt;\\n&lt;/Suspense&gt;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> A single top-level Suspense boundary blocks the entire screen until the slowest child finishes loading.</div>"
+  },
+  {
+    "cat": "React & RR7",
+    "tag": "React 19 Activity",
+    "q": "Q78: What does the React <Activity> component (formerly Offscreen) do, and how does it preserve component state when hidden?",
+    "a": "<p><strong>A:</strong> <code>&lt;Activity mode='hidden'&gt;</code> hides components and pauses effects while keeping their DOM nodes and React state intact in memory for instant tab restoration.</p><pre><code>&lt;Activity mode={activeTab === 'chat' ? 'visible' : 'hidden'}&gt;\\n  &lt;ChatPanel /&gt;\\n&lt;/Activity&gt;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Bypasses the performance cost of unmounting and remounting complex component subtrees during tab switching.</div>"
+  },
+  {
+    "cat": "React & RR7",
+    "tag": "React Router 7 Splat Routes",
+    "q": "Q79: How do Splat routes (*) work in React Router 7, and how do you extract wildcard parameters in TypeScript?",
+    "a": "<p><strong>A:</strong> Splat routes capture remaining URL paths. Access the captured route string using <code>params[\"*\"]</code> in loaders, actions, and component props.</p><pre><code>export async function loader({ params }: Route.LoaderArgs) {\\n  const filePath = params[\"*\"]; // Contains all sub-path segments\\n}</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Splat parameters include raw forward slashes; sanitize input paths to prevent path-traversal vulnerabilities.</div>"
+  },
+  {
+    "cat": "React & RR7",
+    "tag": "React 19 Context",
+    "q": "Q80: How does React 19 simplify Context providers without requiring <Context.Provider> syntax?",
+    "a": "<p><strong>A:</strong> In React 19, the context object itself can be rendered directly as a provider component using <code>&lt;MyContext value={val}&gt;</code> instead of <code>&lt;MyContext.Provider&gt;</code>.</p><pre><code>const ThemeContext = createContext(\"light\");\\n\\nexport function App() {\\n  return &lt;ThemeContext value=\"dark\"&gt;&lt;Dashboard /&gt;&lt;/ThemeContext&gt;;\\n}</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> <code>&lt;Context.Provider&gt;</code> remains supported for backwards compatibility, but the direct component syntax is preferred in React 19.</div>"
+  },
+  {
+    "cat": "State Management",
+    "tag": "Zustand Subscriptions",
+    "q": "Q81: How do you listen to state changes outside React without triggering component renders using Zustand subscribeWithSelector?",
+    "a": "<p><strong>A:</strong> Use the <code>subscribeWithSelector</code> middleware to attach targeted event listeners to specific state slices outside of the React lifecycle.</p><pre><code>useStore.subscribe(state => state.isAuthenticated, (isAuth) => {\\n  if (!isAuth) window.location.href = '/login';\\n});</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Ideal for triggering browser notifications, routing changes, and analytics logs without mounting hidden UI components.</div>"
+  },
+  {
+    "cat": "State Management",
+    "tag": "RTK Custom Middleware",
+    "q": "Q82: How do you build a custom Redux middleware to log, transform, or intercept specific action payloads?",
+    "a": "<p><strong>A:</strong> Create a curried function matching the <code>store => next => action</code> signature to inspect or modify actions before they reach slice reducers.</p><pre><code>const analyticsMiddleware: Middleware = store => next => action => {\\n  if (action.type.endsWith('/rejected')) reportToDatadog(action);\\n  return next(action);\\n};</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Failing to call <code>next(action)</code> stops the action from progressing, preventing state updates in reducers.</div>"
+  },
+  {
+    "cat": "State Management",
+    "tag": "XState Context",
+    "q": "Q83: How does assign() in XState v5 update machine context immutably during event transitions?",
+    "a": "<p><strong>A:</strong> Use the <code>assign()</code> action creator inside transition definitions to update context properties cleanly without mutating state directly.</p><pre><code>on: { INC: { actions: assign({ count: ({ context }) => context.count + 1 }) } }</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Avoid mutating <code>context</code> directly inside action functions; state updates must be declared through <code>assign()</code>.</div>"
+  },
+  {
+    "cat": "State Management",
+    "tag": "TanStack Mutations",
+    "q": "Q84: How do you coordinate multiple dependent queries using enabled flags in TanStack Query?",
+    "a": "<p><strong>A:</strong> Set the <code>enabled</code> option of a dependent query to a boolean check on the prerequisite query's data, delaying execution until parameters exist.</p><pre><code>const user = useQuery({ queryKey: ['user'], queryFn: fetchUser });\\nconst projects = useQuery({\\n  queryKey: ['projects', user.data?.id],\\n  queryFn: () => fetchProjects(user.data.id),\\n  enabled: !!user.data?.id\\n});</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Running dependent queries without <code>enabled</code> checks causes requests to fire with <code>undefined</code> IDs, leading to 400 Bad Request responses.</div>"
+  },
+  {
+    "cat": "State Management",
+    "tag": "SSR Store Hydration",
+    "q": "Q85: How do you prevent singleton state leaks between concurrent user requests during Server-Side Rendering (SSR)?",
+    "a": "<p><strong>A:</strong> Instantiate store instances per-request inside a request context or hook rather than defining stores as global module singletons on the server.</p><pre><code>// Create a unique store instance per SSR request to prevent cross-user session data leakage.</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Global module-level stores on Node.js servers share memory across all incoming HTTP requests, creating data leaks.</div>"
+  },
+  {
+    "cat": "TypeScript",
+    "tag": "Variance Annotations",
+    "q": "Q86: What are in and out type variance annotations in TypeScript, and how do they speed up type checking in large codebases?",
+    "a": "<p><strong>A:</strong> Annotations declare whether a type parameter is covariant (<code>out</code>) or contravariant (<code>in</code>), allowing the compiler to optimize structural type comparison passes.</p><pre><code>interface Producer&lt;out T&gt; { get(): T; }\\ninterface Consumer&lt;in T&gt; { set(val: T): void; }</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Variance annotations can significantly reduce compiler type-checking times in large monorepos.</div>"
+  },
+  {
+    "cat": "TypeScript",
+    "tag": "Index Signatures",
+    "q": "Q87: Why is Record<string, any> dangerous in enterprise applications, and what is the strictly typed alternative?",
+    "a": "<p><strong>A:</strong> <code>Record&lt;string, any&gt;</code> disables type checking on property access. Use <code>Record&lt;string, unknown&gt;</code> and narrow types with guards before consuming values.</p><pre><code>const payload: Record&lt;string, unknown&gt; = JSON.parse(raw);\\nif (typeof payload.id === 'string') { /* Safe narrowed access */ }</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> <code>unknown</code> forces developers to explicitly validate incoming data structures before using them.</div>"
+  },
+  {
+    "cat": "TypeScript",
+    "tag": "Tuple Types",
+    "q": "Q88: How do variadic tuple types and labeled tuple elements enhance the type-safety of enterprise hook returns?",
+    "a": "<p><strong>A:</strong> Labeled tuples provide self-documenting parameter names and accurate index types when returning multi-value array pairs from custom hooks.</p><pre><code>type HookResult = [data: User | null, isLoading: boolean, reload: () => void];</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Tuple labels improve editor autocomplete and documentation hover cards for consumers destructuring array returns.</div>"
+  },
+  {
+    "cat": "TypeScript",
+    "tag": "Function Overloads",
+    "q": "Q89: When should you replace function overloads with conditional generic return types in TypeScript APIs?",
+    "a": "<p><strong>A:</strong> Conditional types handle dynamic return values based on input arguments cleanly within a single function signature, avoiding repetitive overload blocks.</p><pre><code>function query&lt;T extends boolean&gt;(detailed: T): T extends true ? DetailedReport : SummaryReport;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Overloads evaluate top-to-bottom; a broad first overload signature can accidentally mask more specific signatures below it.</div>"
+  },
+  {
+    "cat": "TypeScript",
+    "tag": "Satisfies Operator",
+    "q": "Q90: How does the satisfies operator in TypeScript preserve exact literal types while validating structural constraints?",
+    "a": "<p><strong>A:</strong> <code>satisfies</code> verifies that an expression matches a type interface without widening literals to generic primitives like <code>string</code>.</p><pre><code>const palette = { primary: '#0055ff', accent: [0, 85, 255] } satisfies Record&lt;string, string | number[]&gt;;\\n// Retains exact string and array tuple types; palette.primary.toLowerCase() remains valid.</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Unlike type annotations (<code>const x: Type</code>), <code>satisfies</code> retains the most specific inferred types of individual properties.</div>"
+  },
+  {
+    "cat": "Performance",
+    "tag": "Tree Shaking",
+    "q": "Q91: What is 'sideEffects: false' in package.json, and how does it optimize production bundle sizes during tree shaking?",
+    "a": "<p><strong>A:</strong> Informs bundlers (Rollup, Webpack) that unused file exports contain no global side effects and can be safely dropped from production builds.</p><pre><code>// package.json\\n{ \"sideEffects\": [\"*.css\", \"./src/polyfills.ts\"] }</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> If a package imports CSS globally, marking <code>sideEffects: false</code> without listing CSS files can strip stylesheets from builds.</div>"
+  },
+  {
+    "cat": "Performance",
+    "tag": "Font Optimization",
+    "q": "Q92: How does font-display: optional prevent Cumulative Layout Shift (CLS) during web font loading?",
+    "a": "<p><strong>A:</strong> <code>font-display: optional</code> gives the font a tiny block window (~100ms). If it fails to load immediately, the fallback font is used with no layout shifts.</p><pre><code>@font-face { font-family: 'EnterpriseSans'; src: url('/font.woff2') format('woff2'); font-display: optional; }</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Eliminates the flash of unstyled text (FOUT) and layout shifts caused by delayed web fonts on slow networks.</div>"
+  },
+  {
+    "cat": "Performance",
+    "tag": "DOM / Event Delegation",
+    "q": "Q93: How does Event Delegation optimize memory usage when rendering tables with thousands of interactive cells?",
+    "a": "<p><strong>A:</strong> Attaching a single event listener to a common parent element handles events from all children via event bubbling, reducing memory overhead.</p><pre><code>table.addEventListener('click', (e) => {\\n  const cell = (e.target as HTMLElement).closest('td[data-action]');\\n  if (cell) handleAction(cell.dataset.action);\\n});</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Attaching individual event listeners to thousands of table cells consumes unnecessary memory and slows down render cycles.</div>"
+  },
+  {
+    "cat": "Performance",
+    "tag": "requestIdleCallback",
+    "q": "Q94: How should requestIdleCallback be used for non-critical telemetry logging without impacting UI interaction frames?",
+    "a": "<p><strong>A:</strong> Schedules non-essential operations to run during idle browser frames, ensuring primary input handling and rendering work takes precedence.</p><pre><code>requestIdleCallback((deadline) => {\\n  while (deadline.timeRemaining() > 0 && queue.length) sendTelemetry(queue.shift());\\n});</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Always set a <code>timeout</code> option on important background tasks so they eventually run even during continuous user activity.</div>"
+  },
+  {
+    "cat": "Performance",
+    "tag": "CSS Hardware Acceleration",
+    "q": "Q95: Why should developers avoid animating 'left' and 'top' properties for tooltips and floating dropdown menus?",
+    "a": "<p><strong>A:</strong> Animating <code>left</code> and <code>top</code> triggers CPU layout reflows on each frame. Use CSS <code>transform: translate()</code> to offload movement to the GPU Compositor thread.</p><pre><code>/* Smooth 60fps GPU movement */\\ntransform: translate(var(--x), var(--y));</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Using transforms avoids triggering layout reflows and paint invalidations across sibling elements.</div>"
+  },
+  {
+    "cat": "Network & Security",
+    "tag": "Cross-Origin-Opener-Policy",
+    "q": "Q96: What are Cross-Origin-Opener-Policy (COOP) and Cross-Origin-Embedder-Policy (COEP), and why are they needed for SharedArrayBuffer?",
+    "a": "<p><strong>A:</strong> COOP and COEP isolate execution contexts from cross-origin resources, mitigating Spectre-style timing side-channel vulnerabilities when using <code>SharedArrayBuffer</code>.</p><pre><code>Cross-Origin-Opener-Policy: same-origin\\nCross-Origin-Embedder-Policy: require-corp</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Modern browsers disable <code>SharedArrayBuffer</code> entirely unless both headers are sent by the server.</div>"
+  },
+  {
+    "cat": "Network & Security",
+    "tag": "CSRF Double Submit Cookie",
+    "q": "Q97: What is the Double Submit Cookie pattern, and how does it protect stateless single-page application APIs from CSRF?",
+    "a": "<p><strong>A:</strong> The server sends a random token in a cookie. The client reads the token and echoes it in a custom request header (e.g. <code>X-CSRF-Token</code>) on mutating requests.</p><pre><code>// Server validates: Cookie token === X-CSRF-Token header value. Cross-origin sites cannot read or inject custom headers.</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Cross-origin attacker sites cannot read or inject the custom header due to browser Same-Origin Policy protections.</div>"
+  },
+  {
+    "cat": "Network & Security",
+    "tag": "Clear-Site-Data",
+    "q": "Q98: What does the Clear-Site-Data HTTP header do, and how should it be used during enterprise user logout flows?",
+    "a": "<p><strong>A:</strong> Instructs browsers to completely purge cookies, storage (localStorage, IndexedDB), and cache associated with the domain upon logout.</p><pre><code>Clear-Site-Data: \"cache\", \"cookies\", \"storage\"</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Guarantees that sensitive user data and tokens are cleared from client memory when a user signs out.</div>"
+  },
+  {
+    "cat": "Network & Security",
+    "tag": "DNS Prefetching",
+    "q": "Q99: How does DNS Prefetching (<link rel='dns-prefetch'>) reduce latency for third-party payment gateways and microservice APIs?",
+    "a": "<p><strong>A:</strong> Resolves domain IP addresses in the background before requests are dispatched, saving 50–200ms of DNS resolution latency on subsequent calls.</p><pre><code>&lt;link rel=\"dns-prefetch\" href=\"https://api.stripe.com\" /&gt;</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Combine with <code>preconnect</code> for mission-critical endpoints to complete both DNS and TLS handshakes in advance.</div>"
+  },
+  {
+    "cat": "Network & Security",
+    "tag": "Web Cryptography API",
+    "q": "Q100: Why should enterprise web applications use crypto.getRandomValues() instead of Math.random() for security tokens and IDs?",
+    "a": "<p><strong>A:</strong> <code>Math.random()</code> uses a pseudo-random number generator (PRNG) with predictable seeds. <code>crypto.getRandomValues()</code> uses a cryptographically secure random number generator (CSPRNG).</p><pre><code>const buffer = new Uint8Array(16);\\nwindow.crypto.getRandomValues(buffer);</code></pre><div class=\"gotcha-box\"><strong>Gotchas:</strong> Never generate security identifiers, nonces, or CSRF tokens using <code>Math.random()</code>; their sequences can be predicted by attackers.</div>"
   }
 ]
